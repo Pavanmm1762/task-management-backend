@@ -41,7 +41,6 @@ func getDashboard(c *gin.Context) {
 
 	}
 	dashboard.TotalProjects = totalProjects
-	fmt.Printf("Total Projects: %v\n", totalProjects)
 	iter.Close()
 
 	iter1 := utils.Session.Query("SELECT count(status) FROM projects where owner_id = ? and status = 'Completed' ALLOW FILTERING ",
@@ -55,7 +54,6 @@ func getDashboard(c *gin.Context) {
 
 	}
 	dashboard.CompletedProjects = completedProjects
-	fmt.Printf("Completed Projects: %v\n", completedProjects)
 	iter1.Close()
 
 	// Fetch tasks for each project
@@ -72,7 +70,6 @@ func getDashboard(c *gin.Context) {
 		}
 	}
 	dashboard.TotalUsers = totalUsers
-	fmt.Printf("Total users: %v\n", totalUsers)
 	userIter.Close()
 	// Print the response before sending it
 	fmt.Println("Response:", dashboard)
