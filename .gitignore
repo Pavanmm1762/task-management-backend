@@ -1,0 +1,17 @@
+# Binaries
+*.exe
+*.out
+*.o
+
+# Logs
+*.log
+
+# Environment Variables
+.env
+
+# Vendor directory (if using Go modules)
+vendor/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
