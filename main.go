@@ -16,7 +16,7 @@ func main() {
 	server := gin.Default()
 	// Enable CORS middleware
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"https://project-pioneer.netlify.app"} // Add your frontend origin here
+	config.AllowOrigins = []string{"https://project-pioneer.netlify.app", "http://localhost:3000"} // Add your frontend origin here
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE"}
 	config.AllowHeaders = []string{"Authorization", "Content-Type"}
 	server.Use(cors.New(config))
