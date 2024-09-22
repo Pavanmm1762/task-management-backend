@@ -52,42 +52,31 @@ func CreateProject(c *gin.Context) {
 // GetProjects gets all projects
 func GetProjects(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
-	limitStr := c.Query("limit")
+	pageSize := c.Query("page_size")
+	pageState := c.Query("page_state") // This will hold the paging state for the next page
 
-	// Default values
-	limit := 5
-	if limitStr != "" {
-		limit, _ = strconv.Atoi(limitStr)
-	}
-
-	// Get the last token if provided
-	lastTokenStr := c.Query("last_token")
-	var lastToken gocql.UUID
-	var err error
-	if lastTokenStr != "" {
-		lastToken, err = gocql.ParseUUID(lastTokenStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid last_token"})
-			return
-		}
+	// Convert pageSize to an integer
+	size, err := strconv.Atoi(pageSize)
+	if err != nil || size <= 0 {
+		size = 10 // Default size
 	}
 
 	var projects []utils.Project
-	var iter *gocql.Iter
 
 	userID, err := getUserId(tokenString)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
-	if lastToken == (gocql.UUID{}) {
-		// Fetch first page
-		iter = utils.Session.Query("SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ? LIMIT ?", userID, limit).Iter()
-	} else {
-		// Fetch next page
-		iter = utils.Session.Query("SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ? AND token(id) > token(?) LIMIT ? ", userID, lastToken, limit).Iter()
-
+	query := "SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ?"
+	stmt := utils.Session.Query(query, userID).PageSize(size)
+	// If a page state is provided, set it
+	if pageState != "" {
+		stmt = stmt.PageState([]byte(pageState))
 	}
+
+	iter := stmt.Iter()
+
 	for {
 		var project utils.Project
 
@@ -97,6 +86,9 @@ func GetProjects(c *gin.Context) {
 
 		projects = append(projects, project)
 	}
+	// Get the next paging state from the iterator
+	nextPageState := iter.PageState()
+
 	if err := iter.Close(); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -108,17 +100,12 @@ func GetProjects(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	totalPages := (total + limit - 1) / limit
+	totalPages := (total + size - 1) / size
 
-	// Return the response with the last project's ID for the next token
-	var nextToken gocql.UUID
-	if len(projects) > 0 {
-		nextToken = projects[len(projects)-1].ID
-	}
 	// Return the response
 	response := gin.H{
 		"projects":   projects,
-		"next_token": nextToken,
+		"next_token": nextPageState,
 		"totalPages": totalPages,
 	}
 	c.JSON(http.StatusOK, response)
