@@ -63,8 +63,9 @@ func GetProjects(c *gin.Context) {
 	// Get the last token if provided
 	lastTokenStr := c.Query("last_token")
 	var lastToken gocql.UUID
+	var err error
 	if lastTokenStr != "" {
-		lastToken, err := gocql.ParseUUID(lastTokenStr)
+		lastToken, err = gocql.ParseUUID(lastTokenStr)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid last_token"})
 			return
