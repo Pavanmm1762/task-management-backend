@@ -5,6 +5,7 @@ package utils
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/gocql/gocql"
 	"github.com/google/uuid"
@@ -17,7 +18,7 @@ func InitCassandra() {
 	cluster := gocql.NewCluster("d49c0770-dd1b-4a0b-bde9-e300d929a942-eu-west-1.db.astra.datastax.com") // Astra DB Endpoint
 	cluster.Port = 29042
 	cluster.Keyspace = "task_management_team_collaboration"
-
+	cluster.Timeout = 60 * time.Second
 	cluster.Authenticator = gocql.PasswordAuthenticator{
 		Username: "kDlgtZqvFgHfNvgJoqWOUPpr",
 		Password: "-dyaJZZ1uS1PCdRz0,k.zhfC_nq0krHW1upBDftgA2K8D7RloZ.oj3uJoaoDFzoWBmIFTLqcH9Q05idEu_E95a5JT1Oa5aGgNfMOg_ZDXFImuD06sRYvyCo4mpupDJRG",

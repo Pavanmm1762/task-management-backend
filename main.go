@@ -14,6 +14,7 @@ func main() {
 	//defer utils.Session.Close()
 
 	server := gin.Default()
+	//router.Use(timeoutMiddleware(60 * time.Second))
 	// Enable CORS middleware
 	config := cors.DefaultConfig()
 	config.AllowOrigins = []string{"https://project-pioneer.netlify.app", "http://localhost:3000"} // Add your frontend origin here

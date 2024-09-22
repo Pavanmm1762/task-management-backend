@@ -13,7 +13,6 @@ import (
 // InitTaskRoutes initializes routes for tasks
 func InitTaskRoutes(router *gin.RouterGroup) {
 	router.GET("/tasks", getTasks)
-	router.DELETE("/tasks/:taskId", deleteTask)
 }
 
 func getTasks(c *gin.Context) {
@@ -155,7 +154,11 @@ func UpdateTask(c *gin.Context) {
 // Delete task
 func deleteTask(c *gin.Context) {
 	taskIDStr := c.Param("taskId")
-
+	projectID, err := gocql.ParseUUID(c.Param("projectId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
 	// Parse the user ID
 	taskID, err := gocql.ParseUUID(taskIDStr)
 	if err != nil {
@@ -163,8 +166,8 @@ func deleteTask(c *gin.Context) {
 		return
 	}
 
-	query := "DELETE FROM tasks WHERE task_id = ?"
-	err = utils.Session.Query(query, taskID).Exec()
+	query := "DELETE FROM tasks WHERE task_id = ? AND project_id = ?"
+	err = utils.Session.Query(query, taskID, projectID).Exec()
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

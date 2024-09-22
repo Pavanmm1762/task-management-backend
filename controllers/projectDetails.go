@@ -86,7 +86,7 @@ func UpdateProject(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Project updated successfully"})
+	c.JSON(http.StatusOK, updatedProject)
 }
 
 // Delete project

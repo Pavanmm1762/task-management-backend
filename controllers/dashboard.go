@@ -3,7 +3,6 @@ package controllers
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -71,8 +70,7 @@ func getDashboard(c *gin.Context) {
 	}
 	dashboard.TotalUsers = totalUsers
 	userIter.Close()
-	// Print the response before sending it
-	fmt.Println("Response:", dashboard)
+
 	c.JSON(200, dashboard)
 }
 

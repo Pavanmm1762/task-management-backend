@@ -3,6 +3,7 @@ package controllers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go/task_management/backend/utils"
@@ -19,6 +20,7 @@ func InitProjectRoutes(router *gin.RouterGroup) {
 	router.DELETE("/project/:id", deleteProject)
 	router.PUT("/project/:id", UpdateProject)
 	router.PUT("/projects/:projectId/tasks/:taskId", UpdateTask)
+	router.DELETE("/projects/:projectId/tasks/:taskId", deleteTask)
 }
 
 // CreateProject creates a new project
@@ -50,6 +52,21 @@ func CreateProject(c *gin.Context) {
 // GetProjects gets all projects
 func GetProjects(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
+	pageStr := c.Query("page")
+	limitStr := c.Query("limit")
+
+	// Default values
+	page := 1
+	limit := 10
+	if pageStr != "" {
+		page, _ = strconv.Atoi(pageStr)
+	}
+	if limitStr != "" {
+		limit, _ = strconv.Atoi(limitStr)
+	}
+
+	// Calculate the offset
+	offset := (page - 1) * limit
 
 	var projects []utils.Project
 
@@ -59,7 +76,7 @@ func GetProjects(c *gin.Context) {
 		return
 	}
 
-	iter := utils.Session.Query("SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ? ", userID).Iter()
+	iter := utils.Session.Query("SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ? LIMIT ? OFFSET ?", userID, limit, offset).Iter()
 	for {
 		var project utils.Project
 
@@ -69,11 +86,23 @@ func GetProjects(c *gin.Context) {
 
 		projects = append(projects, project)
 	}
-
 	if err := iter.Close(); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, projects)
+	// Get total count of items (for pagination)
+	var total int
+	if err := utils.Session.Query("SELECT COUNT(*) FROM projects").Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	totalPages := (total + limit - 1) / limit
+
+	// Return the response
+	response := gin.H{
+		"items":      projects,
+		"totalPages": totalPages,
+	}
+	c.JSON(http.StatusOK, response)
 }
