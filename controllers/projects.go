@@ -52,31 +52,41 @@ func CreateProject(c *gin.Context) {
 // GetProjects gets all projects
 func GetProjects(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
-	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
 
 	// Default values
-	page := 1
-	limit := 10
-	if pageStr != "" {
-		page, _ = strconv.Atoi(pageStr)
-	}
+	limit := 5
 	if limitStr != "" {
 		limit, _ = strconv.Atoi(limitStr)
 	}
 
-	// Calculate the offset
-	offset := (page - 1) * limit
+	// Get the last token if provided
+	lastTokenStr := c.Query("last_token")
+	var lastToken gocql.UUID
+	if lastTokenStr != "" {
+		lastToken, err := gocql.ParseUUID(lastTokenStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid last_token"})
+			return
+		}
+	}
 
 	var projects []utils.Project
+	var iter *gocql.Iter
 
 	userID, err := getUserId(tokenString)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
+	if lastToken == (gocql.UUID{}) {
+		// Fetch first page
+		iter = utils.Session.Query("SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ? LIMIT ?", userID, limit).Iter()
+	} else {
+		// Fetch next page
+		iter = utils.Session.Query("SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ? AND token(id) > token(?) LIMIT ? ", userID, lastToken, limit).Iter()
 
-	iter := utils.Session.Query("SELECT id, name, description, start_date, due_date,status FROM projects where owner_id = ? LIMIT ? OFFSET ?", userID, limit, offset).Iter()
+	}
 	for {
 		var project utils.Project
 
