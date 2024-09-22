@@ -110,9 +110,15 @@ func GetProjects(c *gin.Context) {
 	}
 	totalPages := (total + limit - 1) / limit
 
+	// Return the response with the last project's ID for the next token
+	var nextToken gocql.UUID
+	if len(projects) > 0 {
+		nextToken = projects[len(projects)-1].ID
+	}
 	// Return the response
 	response := gin.H{
-		"items":      projects,
+		"projects":   projects,
+		"next_token": nextToken,
 		"totalPages": totalPages,
 	}
 	c.JSON(http.StatusOK, response)
