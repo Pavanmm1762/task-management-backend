@@ -56,7 +56,7 @@ func main() {
 	server.Use(cors.New(config))
 
 	server.OPTIONS("/*path", func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "http://localhost:3000")
+		c.Header("Access-Control-Allow-Origin", "https://project-pioneer.netlify.app")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, Origin, Accept")
 		c.Header("Access-Control-Allow-Credentials", "true")
