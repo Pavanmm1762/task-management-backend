@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/joho/godotenv"
 )
 
 // DBPool is the connection pool for PostgreSQL
@@ -17,10 +16,6 @@ var DBPool *pgxpool.Pool
 // Connect initializes the PostgreSQL connection pool
 func ConnectToDB() {
 
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatalf("Error loading .env file")
-	}
 	// dbHost := os.Getenv("DB_HOST")
 	// dbPort := os.Getenv("DB_PORT")
 	// dbUser := os.Getenv("DB_USER")
