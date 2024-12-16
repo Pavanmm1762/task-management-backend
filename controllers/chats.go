@@ -23,7 +23,7 @@ var upgrader = websocket.Upgrader{
 var clients = make(map[string]*websocket.Conn)
 var clientsMu sync.Mutex
 
-func HandleWebSocket(c *gin.Context) {
+func HandleWebSocket1(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		fmt.Println(err)

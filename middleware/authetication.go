@@ -3,20 +3,13 @@
 package middleware
 
 import (
-	"errors"
-	"fmt"
-	"strings"
-
 	"net/http"
 
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/go/task_management/backend/utils"
 )
 
-var jwtSecret = []byte("secure_secret_key") // Change this to your secret key
-
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddleware(role string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenString := c.GetHeader("Authorization")
 
@@ -26,35 +19,22 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Verify the token using your verification logic
-		validToken, err := VerifyToken(tokenString)
+		validToken, claims, err := utils.VerifyToken(tokenString)
 		if err != nil || !validToken {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized - Invalid token"})
 			return
 		}
 
+		// Check if the role in the token matches the required role
+		if claims["role"] != role {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden - Insufficient permissions"})
+			return
+		}
+
+		// Set user info in context (optional)
+		c.Set("userID", claims["user_id"])
+		c.Set("role", claims["role"])
+
 		c.Next()
 	}
-}
-
-// VerifyToken is a function to verify the JWT token
-func VerifyToken(tokenString string) (bool, error) {
-
-	tokenString = strings.Replace(tokenString, "Bearer ", "", 1)
-
-	if jwtSecret == nil {
-		return false, errors.New("jwtSecret is nil")
-	}
-
-	token, err := jwt.ParseWithClaims(tokenString, &utils.Claims{}, func(token *jwt.Token) (interface{}, error) {
-
-		return jwtSecret, nil
-	})
-
-	if err != nil {
-		fmt.Println(err)
-		return false, err
-	}
-
-	// Check if the token is valid
-	return token.Valid, nil
 }

@@ -1,86 +1,159 @@
 package controllers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/go/task_management/backend/utils"
-	"github.com/gocql/gocql"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/gin-gonic/gin"
 )
 
-func Register(c *gin.Context) {
-	var user utils.RegisterUser
-	if err := c.ShouldBindJSON(&user); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// RegisterAdmin registers a new admin
+func RegisterAdmin(c *gin.Context) {
+	var admin utils.RegisterUser
+	if err := c.ShouldBindJSON(&admin); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
 
-	if isUserRegistered(user.Username) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "User with this username already exists"})
+	// Check if the username already exists
+	var existingAdminID string
+	queryCheck := `SELECT id FROM admins WHERE username=$1`
+	err := utils.DBPool.QueryRow(context.Background(), queryCheck, admin.Username).Scan(&existingAdminID)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
 		return
 	}
 
-	// user registration logic and storing user data in Cassandra
-	user.Admin_id = gocql.TimeUUID()
+	// Validate the password (add your own validation logic if needed)
+	if len(admin.Password) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
+		return
+	}
 
-	query := "INSERT INTO admin (admin_id, username, email, password) VALUES (?, ?, ?, ?)"
-	err := utils.Session.Query(query, user.Admin_id, user.Username, user.Email, user.Password).Exec()
-
+	// Hash the password before storing it
+	hashedPassword, err := HashPassword(admin.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
+	// Generate a new ID for the admin
+	newID, err := utils.GetNextAdminID() // Implement this function to generate IDs
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate new ID"})
+		return
+	}
+	admin.AdminID = newID
+	admin.Password = hashedPassword
+	admin.CreatedAt = time.Now().UTC() // Store in UTC for consistency
+	admin.UpdatedAt = admin.CreatedAt
+
+	// Insert the admin into the database
+	query := `INSERT INTO admins (id, username, password, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)`
+	_, err = utils.DBPool.Exec(context.Background(), query, admin.AdminID, admin.Username, admin.Password, admin.CreatedAt, admin.UpdatedAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create admin"})
+		return
+	}
+
+	// Initialize the admin counters for the projects and users
+	query = `INSERT INTO id_counter (admin_id, project_value, user_value, task_value) VALUES ($1, 0, 0, 0)`
+	_, err = utils.DBPool.Exec(context.Background(), query, admin.AdminID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create counter"})
+		return
+	}
+
+	// Return a success response
+	c.JSON(http.StatusCreated, gin.H{
+		"id":        admin.AdminID,
+		"username":  admin.Username,
+		"createdAt": admin.CreatedAt,
+	})
 }
 
-func Login(c *gin.Context) {
-	var user utils.LoginUser
-	if err := c.ShouldBindJSON(&user); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// LoginAdmin authenticates an admin and returns a token if successful.
+func LoginAdmin(c *gin.Context) {
+	var admin utils.RegisterUser
+	if err := c.ShouldBindJSON(&admin); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
 	}
 
-	// Check if the user exists
-	userID, err := authenticateUser(user.Username, user.Password)
+	// Query the database for the existing admin
+	var storedAdmin utils.RegisterUser
+	query := `SELECT id, password FROM admins WHERE username=$1`
+	err := utils.DBPool.QueryRow(context.Background(), query, admin.Username).Scan(&storedAdmin.AdminID, &storedAdmin.Password)
+
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+		// Admin not found
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Username not registered!"})
 		return
 	}
 
-	// Generate JWT token
-	token, err := utils.GenerateToken(userID)
+	// Compare the hashed password with the stored hash
+	if !CheckPasswordHash(admin.Password, storedAdmin.Password) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Incorrect password!"})
+		return
+	}
+
+	// Generate a token (implement your token generation logic)
+	token, err := utils.GenerateToken(storedAdmin.AdminID, "admin") // Replace with your token generation method
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"token": token, "userId": userID})
+	c.JSON(http.StatusOK, gin.H{"token": token, "adminID": storedAdmin.AdminID})
 }
 
-func isUserRegistered(username string) bool {
-	// Perform a database query to check if a user with the given username already exists
-	// Example using gocql
-	var existingUser utils.RegisterUser
-	if err := utils.Session.Query("SELECT admin_id FROM admin WHERE username=? ALLOW FILTERING", username).Scan(&existingUser.Admin_id); err != nil {
-		// User not found, return false
-		return false
+// LoginMember authenticates a member and returns a token if successful.
+func LoginMember(c *gin.Context) {
+	var member utils.RegisterUser
+	if err := c.ShouldBindJSON(&member); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
 	}
 
-	// User found, return true
-	return true
+	// Query the database for the existing member
+	var storedMember utils.RegisterUser
+	query := `SELECT id, password FROM users WHERE username=$1`
+	err := utils.DBPool.QueryRow(context.Background(), query, member.Username).Scan(&storedMember.AdminID, &storedMember.Password)
+
+	if err != nil {
+		// Member not found
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Username not registered!"})
+		return
+	}
+
+	// Compare the hashed password with the stored hash
+	if !CheckPasswordHash(member.Password, storedMember.Password) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Incorrect password!"})
+		return
+	}
+
+	// Generate a token for the member (implement your token generation logic)
+	token, err := utils.GenerateToken(storedMember.AdminID, "member") // Replace with your token generation method
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"token": token, "memberID": storedMember.AdminID})
 }
 
-func authenticateUser(username, password string) (gocql.UUID, error) {
-	// Perform a database query to authenticate the user
-	// Example using gocql
-	var userID gocql.UUID
-	if err := utils.Session.Query("SELECT admin_id FROM admin WHERE username=? AND password=? ALLOW FILTERING", username, password).Scan(&userID); err != nil {
-		// Authentication failed
-		return gocql.UUID{}, err
-	}
+// HashPassword hashes the password using bcrypt
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return string(bytes), err
+}
 
-	// Authentication successful
-	return userID, nil
+// CheckPasswordHash checks the password against the hashed password
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }

@@ -1,5 +1,3 @@
-// utils/auth.go
-
 package utils
 
 import (
@@ -8,21 +6,22 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
-	"github.com/gocql/gocql"
 )
 
-var jwtSecret = []byte("secure_secret_key") // Change this to a secure secret key
+var jwtSecret = []byte("task_managementcfhdf") // Change this to a secure secret key
 
 // Claims represents the claims that will be encoded into the JWT token
 type Claims struct {
-	UserID gocql.UUID `json:"user_id"`
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
 	jwt.StandardClaims
 }
 
 // GenerateToken generates a JWT token for the given user ID
-func GenerateToken(userID gocql.UUID) (string, error) {
+func GenerateToken(userID string, role string) (string, error) {
 	claims := &Claims{
 		UserID: userID,
+		Role:   role,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(time.Hour * 12).Unix(), // Token expires in 24 hours
 			IssuedAt:  time.Now().Unix(),
@@ -39,7 +38,37 @@ func GenerateToken(userID gocql.UUID) (string, error) {
 	return signedToken, nil
 }
 
-func getUserId(tokenString string) (gocql.UUID, error) {
+// VerifyToken is a function to verify the JWT token
+func VerifyToken(tokenString string) (bool, jwt.MapClaims, error) {
+
+	tokenString = strings.Replace(tokenString, "Bearer ", "", 1)
+
+	if jwtSecret == nil {
+		return false, nil, errors.New("jwtSecret is nil")
+	}
+
+	// Parse and verify the JWT token
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Ensure the signing method is correct
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("invalid signing method")
+		}
+		return jwtSecret, nil
+	})
+
+	// If parsing failed, return an error
+	if err != nil {
+		return false, nil, err
+	}
+
+	// Check if the token is valid
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		return true, claims, nil
+	}
+	return false, nil, errors.New("invalid token")
+}
+
+func GetUserId(tokenString string) (string, error) {
 
 	tokenString = strings.Replace(tokenString, "Bearer ", "", 1)
 
@@ -53,7 +82,7 @@ func getUserId(tokenString string) (gocql.UUID, error) {
 
 	// Check for errors
 	if err != nil {
-		return gocql.UUID{}, err
+		return " ", err
 	}
 
 	// Check if the token is valid
@@ -61,5 +90,5 @@ func getUserId(tokenString string) (gocql.UUID, error) {
 		return claims.UserID, nil
 	}
 
-	return gocql.UUID{}, errors.New("Invalid token")
+	return " ", errors.New("Invalid token")
 }

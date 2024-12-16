@@ -1,97 +1,254 @@
-// controllers/users.go
+// // controllers/users.go
 package controllers
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go/task_management/backend/utils"
-	"github.com/gocql/gocql"
+	"github.com/jackc/pgconn"
+	"github.com/jackc/pgx/v4"
 )
 
 // InitTaskRoutes initializes routes for tasks
 func InitUserRoutes(router *gin.RouterGroup) {
-	router.GET("/users-list", getUsers)
-	router.POST("/add-user", addUser)
-	router.DELETE("/user/:userid", deleteUser)
-	router.PUT("/user/:userid", UpdateUser)
+	router.GET("/users", GetUsers)
+	router.GET("/users/:project_id", AvailableUsers)
+	router.POST("users/create-user", CreateUser)
+	router.DELETE("/users/:userid", DeleteUser)
+	router.PUT("/users/:userid", UpdateUser)
 }
 
-// CreateProject creates a new project
-func addUser(c *gin.Context) {
+// CreateUser handles the creation of a user
+func CreateUser(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
-	var user utils.Users
+	var user utils.User
+
 	if err := c.ShouldBindJSON(&user); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
-	adminId, err := getUserId(tokenString)
+
+	// Start a transaction
+	tx, err := utils.DBPool.Begin(context.Background())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
+		return
+	}
+	defer tx.Rollback(context.Background())
+
+	adminId, err := utils.GetUserId(tokenString)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
+	user.AdminID = adminId
 
-	user.UserId = gocql.TimeUUID()
+	// Get next user ID
+	newID, err := utils.GetNextUserID(tx, adminId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate new ID"})
+		return
+	}
+	user.ID = newID
 
-	if err := utils.Session.Query("INSERT INTO users (user_id, firstname, lastname, role, email, password, admin_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		user.UserId, user.FirstName, user.LastName, user.UserRole, user.UserEmail, user.UserPassword, adminId).Exec(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	hashedPassword, err := HashPassword(user.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+	user.Password = hashedPassword
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user.Status = "active"
+	user.Role = "member"
+	user.CreatedAt = time.Now().Format("02-01-2006 3:04:05 PM")
+	user.UpdatedAt = user.CreatedAt
+
+	query := `INSERT INTO users (id, username, full_name, contact_no, gender, email, password, designation, department, status, role, admin_id) 
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+
+	_, err = utils.DBPool.Exec(ctx, query,
+		user.ID, user.Username, user.FullName, user.ContactNo, user.Gender, user.Email, user.Password, user.Designation, user.Department, user.Status, user.Role, user.AdminID)
+
+	if err != nil {
+		if pgErr, ok := err.(*pgconn.PgError); ok {
+			if pgErr.Code == "23505" {
+				if strings.Contains(pgErr.Message, "users_username_key") {
+					c.JSON(http.StatusConflict, gin.H{"error": "Username is already taken"})
+				} else if strings.Contains(pgErr.Message, "users_email_key") {
+					c.JSON(http.StatusConflict, gin.H{"error": "Email is already taken"})
+				} else {
+					c.JSON(http.StatusConflict, gin.H{"error": "Username or email is already taken"})
+				}
+				return
+			}
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		log.Print(err)
+		return
+	}
+
+	// Commit the transaction
+	err = tx.Commit(context.Background())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, user)
 }
 
-// GetProjects gets all projects
-func getUsers(c *gin.Context) {
-	var users []utils.Users
-	tokenString1 := c.GetHeader("Authorization")
+// GetUsers get the users lists
+func GetUsers(c *gin.Context) {
+	tokenString := c.GetHeader("Authorization")
 
-	admin_id, err := getUserId(tokenString1)
+	pageStr := c.Query("page")
+	limitStr := c.Query("limit")
+	searchQuery := c.Query("search") // Search by project name
+
+	page, limit := 1, 5
+	var err error
+
+	if pageStr != "" {
+		page, err = strconv.Atoi(pageStr)
+		if err != nil || page < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page number"})
+			return
+		}
+	}
+
+	if limitStr != "" {
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil || limit < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit number"})
+			return
+		}
+	}
+
+	adminID, err := utils.GetUserId(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: User ID not found"})
 		return
 	}
 
-	iter := utils.Session.Query("SELECT user_id, firstname, lastname,  role, email  FROM users where admin_id = ?", admin_id).Iter()
-	for {
-		var user utils.Users
+	offset := (page - 1) * limit
 
-		if !iter.Scan(&user.UserId, &user.FirstName, &user.LastName, &user.UserRole, &user.UserEmail) {
-			break
+	// Base query for projects with pagination
+	query := `SELECT id, username, full_name, contact_no, gender, email, designation, department, status, created_at, admin_id 
+	          FROM users
+			  WHERE admin_id = $1 `
+
+	// Modify query if search parameter is provided
+	if searchQuery != "" {
+		query += `AND username ILIKE '%' || $4 || '%' `
+	}
+
+	query += `ORDER BY created_at DESC 
+	          LIMIT $2 OFFSET $3`
+
+	// Execute the query
+	var rows pgx.Rows
+	if searchQuery != "" {
+		rows, err = utils.DBPool.Query(context.Background(), query, adminID, limit, offset, searchQuery)
+	} else {
+		rows, err = utils.DBPool.Query(context.Background(), query, adminID, limit, offset)
+	}
+
+	if err != nil {
+		fmt.Print(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve users"})
+		return
+	}
+	defer rows.Close()
+
+	users := []utils.User{}
+
+	for rows.Next() {
+		var user utils.User
+		var created_at time.Time
+		if err := rows.Scan(&user.ID, &user.Username, &user.FullName, &user.ContactNo, &user.Gender, &user.Email, &user.Designation, &user.Department, &user.Status, &created_at, &user.AdminID); err != nil {
+			log.Print(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan user"})
+			return
 		}
-
+		user.CreatedAt = created_at.Format("02-01-2006 3:04:05 PM")
 		users = append(users, user)
 	}
 
-	if err := iter.Close(); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error occurred during row iteration"})
 		return
 	}
 
-	c.JSON(http.StatusOK, users)
+	// Count total number of projects, including the search filter if applied
+	countQuery := `SELECT COUNT(*) FROM users WHERE admin_id = $1 `
+	if searchQuery != "" {
+		countQuery += `AND username ILIKE '%' || $2 || '%'`
+	}
+
+	var total int
+	if searchQuery != "" {
+		err = utils.DBPool.QueryRow(context.Background(), countQuery, adminID, searchQuery).Scan(&total)
+	} else {
+		err = utils.DBPool.QueryRow(context.Background(), countQuery, adminID).Scan(&total)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count projects"})
+		return
+	}
+
+	// Calculate total pages
+	totalPages := (total + limit - 1) / limit
+	hasNext := page < totalPages
+	hasPrev := page > 1
+
+	c.JSON(http.StatusOK, gin.H{
+		"users":      users,
+		"page":       page,
+		"limit":      limit,
+		"total":      total,
+		"totalPages": totalPages,
+		"hasNext":    hasNext,
+		"hasPrev":    hasPrev,
+	})
 }
 
 // Update User
 func UpdateUser(c *gin.Context) {
-	userID, err := gocql.ParseUUID(c.Param("userid"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
+	userID := c.Param("userid")
 
-	var updatedUser utils.Users // Assuming you have a User struct in utils package
-
-	if err := c.ShouldBindJSON(&updatedUser); err != nil {
+	var updateUser utils.User
+	if err := c.ShouldBindJSON(&updateUser); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Perform the update logic, for example, using CQL UPDATE statement
-	query := "UPDATE users SET firstname=?, lastname=?, email=?, role=?, password=? WHERE user_id=?"
-	err = utils.Session.Query(query, updatedUser.FirstName, updatedUser.LastName, updatedUser.UserEmail, updatedUser.UserRole, updatedUser.UserPassword, userID).Exec()
+	query := `UPDATE users SET full_name=$1, email=$2, designation=$3, department=$4, contact_no=$5, gender=$6, updated_at=NOW() WHERE id=$7`
+
+	_, err := utils.DBPool.Exec(context.Background(), query, updateUser.FullName, updateUser.Email, updateUser.Designation, updateUser.Department, updateUser.ContactNo, updateUser.Gender, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if pgErr, ok := err.(*pgconn.PgError); ok {
+			if pgErr.Code == "23505" {
+				if strings.Contains(pgErr.Message, "users_username_key") {
+					c.JSON(http.StatusConflict, gin.H{"error": "Username is already taken"})
+				} else if strings.Contains(pgErr.Message, "users_email_key") {
+					c.JSON(http.StatusConflict, gin.H{"error": "Email is already taken"})
+				} else {
+					c.JSON(http.StatusConflict, gin.H{"error": "Username or email is already taken"})
+				}
+				return
+			}
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 		return
 	}
 
@@ -99,21 +256,15 @@ func UpdateUser(c *gin.Context) {
 }
 
 // Delete user
-func deleteUser(c *gin.Context) {
-	userIDStr := c.Param("userid")
+func DeleteUser(c *gin.Context) {
+	userID := c.Param("userid")
 
-	// Parse the user ID
-	userID, err := gocql.ParseUUID(userIDStr)
+	query := "DELETE FROM users WHERE id = $1"
+
+	_, err := utils.DBPool.Exec(context.Background(), query, userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	query := "DELETE FROM users WHERE user_id = ?"
-	err = utils.Session.Query(query, userID).Exec()
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Print(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
 		return
 	}
 
