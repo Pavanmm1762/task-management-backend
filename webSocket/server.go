@@ -26,8 +26,8 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		// Allow only specific origins (modify for production use)
 		allowedOrigins := map[string]bool{
-			"http://localhost:3000":  true,
-			"https://yourdomain.com": true,
+			"http://localhost:3000":               true,
+			"https://project-pioneer.netlify.app": true,
 		}
 		origin := r.Header.Get("Origin")
 		return allowedOrigins[origin]
@@ -56,14 +56,14 @@ func (wss *WebSocketServer) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 		delete(wss.Clients, userID)
 		wss.Mutex.Unlock()
 		conn.Close()
-		log.Printf("Connection closed for user %s", userID)
+		fmt.Printf("Connection closed for user %s", userID)
 	}()
 
 	// Store the connection in the server's Clients map
 	wss.Mutex.Lock()
 	wss.Clients[userID] = conn
 	wss.Mutex.Unlock()
-	log.Printf("New connection established for user %s", userID)
+	fmt.Printf("New connection established for user %s", userID)
 
 	// Set pong handler for connection health check
 	conn.SetPongHandler(func(appData string) error {
@@ -110,7 +110,7 @@ func (wss *WebSocketServer) Shutdown() {
 		delete(wss.Clients, userID)
 		log.Printf("Closed connection for user %s", userID)
 	}
-	log.Println("WebSocket server shutdown complete")
+	fmt.Printf("WebSocket server shutdown complete")
 }
 
 // StartWebSocketServer starts the WebSocket server on the specified port
@@ -121,6 +121,6 @@ func StartWebSocketServer() {
 			log.Fatal("WebSocket server failed to start:", err)
 		}
 	}()
-	log.Println("websocket server is running on port 8081")
+	fmt.Printf("websocket server is running on port 8081")
 
 }

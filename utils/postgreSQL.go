@@ -44,7 +44,7 @@ func ConnectToDB() {
 		if err == nil {
 			// Ping to verify the connection is alive
 			if err = Ping(); err == nil {
-				log.Println("Connected to the database successfully")
+				fmt.Printf("Connected to the database successfully")
 				return
 			}
 		}
@@ -57,7 +57,7 @@ func ConnectToDB() {
 
 // Close closes the database connection pool
 func Close() {
-	log.Println("Database connection pool closed successfully")
+	fmt.Printf("Database connection pool closed successfully")
 	DBPool.Close()
 }
 
@@ -171,6 +171,6 @@ func CreateTables() {
 		}
 	}
 
-	log.Print("message : Tables created successfully")
+	fmt.Printf("message : Tables created successfully")
 
 }

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -121,14 +122,14 @@ func main() {
 		}
 	}()
 
-	log.Println("Server is running on port 8080")
+	fmt.Printf("Server is running on port 8080")
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit // Block until a signal is received
 
-	log.Println("Shutting down server...")
+	fmt.Printf("Shutting down server...")
 
 	// Gracefully shutdown the server with a timeout of 5 seconds
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -138,5 +139,5 @@ func main() {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
-	log.Println("Server exited gracefully")
+	fmt.Printf("Server exited gracefully")
 }
