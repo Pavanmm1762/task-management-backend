@@ -16,6 +16,11 @@ var DBPool *pgxpool.Pool
 // Connect initializes the PostgreSQL connection pool
 func ConnectToDB() {
 
+	// err := godotenv.Load(".env")
+	// if err != nil {
+	// 	log.Fatalf("Error loading .env file")
+	// }
+
 	// dbHost := os.Getenv("DB_HOST")
 	// dbPort := os.Getenv("DB_PORT")
 	// dbUser := os.Getenv("DB_USER")
@@ -57,7 +62,7 @@ func ConnectToDB() {
 
 // Close closes the database connection pool
 func Close() {
-	fmt.Printf("Database connection pool closed successfully")
+	fmt.Printf("Database connection pool closed successfully ")
 	DBPool.Close()
 }
 
