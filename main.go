@@ -50,11 +50,19 @@ func main() {
 
 	// Enable CORS middleware
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"https://project-pioneer.netlify.app", "http://localhost:3000"}
+	config.AllowOrigins = []string{"https://project-pioneer.netlify.app"}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"Authorization", "Content-Type"}
 	config.AllowCredentials = true
 	server.Use(cors.New(config))
+
+	server.OPTIONS("/*path", func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "https://project-pioneer.netlify.app")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, Origin, Accept")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.AbortWithStatus(204)
+	})
 
 	authGroup := server.Group("/auth")
 	{
